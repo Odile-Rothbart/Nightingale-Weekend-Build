@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Care Note - {{ patient.display_name }}</title>
+  <style>
+    body { font-family: system-ui, Arial; margin: 24px; }
+    .row { display:flex; gap:16px; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:12px; margin-bottom:12px; }
+    .muted { color:#666; font-size:12px; }
+    .btn { padding:8px 10px; border:1px solid #333; border-radius:10px; background:#fff; cursor:pointer; }
+    .hl { background:#fff7cc; }
+    .hl-ok { border: 2px solid #2e7d32; }
+    .hl-bad { opacity: 0.55; }
+    .hl-sug { }
+  </style>
+</head>
+<body>
+  <h2>Care Note: {{ patient.display_name }}</h2>
+  <div class="muted">Patient ID: {{ patient.id }} | Clinic: {{ patient.clinic_id }}</div>
+
+  <div class="row" style="margin-top:16px;">
+    <div style="flex:1;">
+      <div class="card">
+  <h3>Glance View</h3>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button class="btn" onclick="generateHighlights()">Generate Highlights</button>
+    <button class="btn" onclick="generateMockSummary()">Generate Patient Summary (Mock)</button>
+  </div>
+  <div id="highlights" style="margin-top:12px;"></div>
+</div>
+
+      <div class="card">
+        <h3>Timeline</h3>
+        <div id="timeline"></div>
+      </div>
+    </div>
+
+    <div style="width:360px;">
+      <div class="card">
+        <h3>Auth</h3>
+        <div class="muted">Use staff1/clin1/pat1</div>
+        <input id="username" placeholder="username" style="width:100%;padding:8px;margin-top:8px;">
+        <input id="password" placeholder="password" type="password" style="width:100%;padding:8px;margin-top:8px;">
+        <button class="btn" style="margin-top:8px;" onclick="login()">Login (JWT)</button>
+        <div class="muted" id="authStatus" style="margin-top:8px;"></div>
+      </div>
+    </div>
+  </div>
+
+{{ patient.id|json_script:"patient-id" }}
+<script>
+const patientId = JSON.parse(document.getElementById("patient-id").textContent);
+let token = "";
+
+async function login(){
+  const u = document.getElementById("username").value;
+  const p = document.getElementById("password").value;
+  const res = await fetch("/api/auth/token/", {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({username:u, password:p})
+  });
+  const data = await res.json();
+  token = data.access || "";
+  document.getElementById("authStatus").innerText = token ? "Logged in." : ("Login failed: " + JSON.stringify(data));
+  if(token) loadCareNote();
+}
+
+async function loadCareNote(){
+  const res = await fetch(`/api/patients/${patientId}/care-note/?_=${Date.now()}`, {
+  headers: token ? {Authorization:`Bearer ${token}`} : {}
+});
+  const data = await res.json();
+
+  // highlights
+  const hl = (data.glance && data.glance.highlights) || [];
+  console.log("HL from care-note:", hl);
+  document.getElementById("highlights").innerHTML = hl.length ? hl.map(h =>
+    `<div class="card hl ${h.status === "accepted" ? "hl-ok" : h.status === "rejected" ? "hl-bad" : "hl-sug"}">
+      <div><b>${escapeHtml(h.text)}</b></div>
+      <div class="muted">
+  ${escapeHtml(h.risk_reason)} | entry #${h.entry_id} | status=${escapeHtml(h.status)}
+</div>
+      <a href="#entry-${h.entry_id}">Jump to source</a>
+      <div style="margin-top:8px; display:flex; gap:8px;">
+      <button class="btn" onclick="setHighlightStatus(${h.id}, 'accepted')">Accept</button>
+      <button class="btn" onclick="setHighlightStatus(${h.id}, 'rejected')">Reject</button>
+    </div>
+    </div>`
+  ).join("") : "<div class='muted'>No highlights.</div>";
+
+  // timeline
+  const tl = data.timeline || [];
+  document.getElementById("timeline").innerHTML = tl.length ? tl.map(e =>
+    `<div class="card" id="entry-${e.id}">
+      <div><b>${escapeHtml(e.type)}</b> <span class="muted">#${e.id} | ${escapeHtml(e.author_role)} | ${e.created_at}</span></div>
+      <div style="margin-top:6px;white-space:pre-wrap;">${escapeHtml(e.content)}</div>
+      <div class="muted" style="margin-top:6px;">prov: ${escapeHtml(e.provenance_pointer)}</div>
+    </div>`
+  ).join("") : "<div class='muted'>No entries.</div>";
+}
+
+async function generateHighlights(){
+  const res = await fetch(`/api/patients/${patientId}/highlights/generate/`, {
+    method:"POST",
+    headers: token ? {Authorization:`Bearer ${token}`} : {}
+  });
+  if(res.status === 401 || res.status === 403){
+    alert("Need staff/clinician/admin login to generate highlights.");
+    return;
+  }
+  await loadCareNote();
+}
+async function generateMockSummary(){
+  const res = await fetch(`/api/patients/${patientId}/ai/patient-summary-mock/`, {
+    method:"POST",
+    headers: token ? {Authorization:`Bearer ${token}`} : {}
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(JSON.stringify(data)); return; }
+  await loadCareNote();
+}
+
+async function setHighlightStatus(id, status){
+  const res = await fetch(`/api/highlights/${id}/status/`, {
+    method:"POST",
+    headers: token
+      ? {Authorization:`Bearer ${token}`, "Content-Type":"application/json"}
+      : {"Content-Type":"application/json"},
+    body: JSON.stringify({status})
+  });
+  const data = await res.json();
+  console.log("set status resp", res.status, data);   // 加这一行
+  if(!res.ok){ alert("Failed: " + JSON.stringify(data)); return; }
+  await loadCareNote();
+}
+
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+}
+</script>
+</body>
+</html>
