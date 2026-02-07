@@ -10,7 +10,7 @@ A minimal, end-to-end **Care Note** prototype with:
 - **Automated tests** (pytest)
 
 > Data is **synthetic** for demo/testing.
-
+AI usage disclosure: Some boilerplate and UI glue code was drafted with assistance from ChatGPT and then integrated and tested locally.
 ---
 
 ## Tech Stack
@@ -193,6 +193,23 @@ Test coverage includes:
 * highlight provenance
 * revision history + revert
 * optimistic concurrency conflict (409)
+
+---
+
+## What’s implemented (MVP)
+- Care Note web page: Glance (highlights) + Timeline (entries)
+- Highlights: rule-based generation with provenance (each highlight links to a source entry); clinician/admin accept/reject; patient sees accepted only
+- Patient-facing summary: mock `ai_patient_session_summary` stored as a `system` entry (no external API key required)
+- RBAC + clinic scope enforcement (server-side)
+- Revision history + revert for entries
+- Optimistic concurrency control on edits (If-Match / 409 conflict)
+- Automated tests for core behaviors (RBAC, provenance, revisions, concurrency)
+
+## What’s missing / out of scope for this 48h build
+- Inline collaboration comments (threaded comments, resolve/unresolve)
+- Real LLM integration + PHI redaction pipeline (the summary is mock; can be swapped with OpenAI behind a feature flag)
+- Additional AI-scribed note types (e.g., doctor/nurse consult summaries)
+- Packaging deliverables beyond code (e.g., technical brief / attribution / demo video), if required by the evaluator
 
 ---
 
